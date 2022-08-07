@@ -1,8 +1,11 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
+import bcrypt from 'bcrypt';
 import { validationResult } from 'express-validator';
 import { registerValidation } from './validations/auth.js';
+
+import UserModel from './models/User.js';
 
 mongoose
   .connect(
@@ -46,14 +49,27 @@ app.post('/auth/login', (req, res) => {
   });
 });
 
-app.post('/auth/register', registerValidation, (req, res) => {
+app.post('/auth/register', registerValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json(errors.array);
+    return res.status(400).json(errors.array());
   }
-  res.json({
-    success: true,
+  // пароль шифруется на бэке, а не фронте
+  const password = req.body.password;
+  //соль - это алгоритм шифрования пароля
+  const salt = await bcrypt.genSalt(10);
+  const passwordHash = await bcrypt.hash(password, salt);
+  //создаем документ пользователя с помощью mongoDB
+  const doc = new UserModel({
+    email: req.body.email,
+    fullName: req.body.fullName,
+    avatarURL: req.body.avatarURL,
+    passwordHash: passwordHash,
   });
+
+  const user = await doc.save();
+
+  res.json(user);
 });
 
 //запуск вебсервера
