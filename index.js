@@ -7,6 +7,7 @@ import { registerValidation } from './validations/auth.js';
 
 import UserModel from './models/User.js';
 import checkAuth from './utils/checkAuth.js';
+import User from './models/User.js';
 
 mongoose
   .connect(
@@ -17,9 +18,6 @@ mongoose
   })
   .catch((error) => {
     console.log('db error', error);
-  })
-  .finally(() => {
-    console.log('db test');
   });
 
 //записываем всю логику экспресса в app
@@ -142,8 +140,17 @@ app.post('/auth/register', registerValidation, async (req, res) => {
   }
 });
 
-app.get('/auth/me', checkAuth, (req, res) => {
+app.get('/auth/me', checkAuth, async (req, res) => {
   try {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({
+        message: 'Пользователь не найден',
+      });
+    }
+
+    const { passwordHash, ...userData } = user._doc;
+    res.json(userData);
   } catch (error) {
     console.log(error);
     return res.status(404).json({
