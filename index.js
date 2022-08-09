@@ -1,13 +1,19 @@
 import express from 'express';
-import jwt from 'jsonwebtoken';
-import mongoose from 'mongoose';
-import bcrypt from 'bcrypt';
-import { validationResult } from 'express-validator';
-import { registerValidation } from './validations/auth.js';
 
-import UserModel from './models/User.js';
-import checkAuth from './utils/checkAuth.js';
-import User from './models/User.js';
+import mongoose from 'mongoose';
+import fs from 'fs';
+import multer from 'multer';
+import cors from 'cors';
+
+import {
+  registerValidation,
+  loginValidation,
+  postCreateValidation,
+} from './validations.js';
+
+import { handleValidationErrors, checkAuth } from './utils/index.js';
+
+import { UserController, PostController } from './controllers/index.js';
 
 mongoose
   .connect(
@@ -23,6 +29,26 @@ mongoose
 //записываем всю логику экспресса в app
 const app = express();
 
+//хранилище для загрузки изображений
+const storage = multer.diskStorage({
+  destination: (_, __, cb) => {
+    if (!fs.existsSync('uploads')) {
+      fs.mkdirSync('uploads');
+    }
+    cb(null, 'uploads');
+  },
+  filename: (_, file, cb) => {
+    cb(null, file.originalname);
+  },
+});
+
+const upload = multer({ storage });
+
+app.use(express.json());
+app.use(cors());
+// объясняем экспрессу, что по пути аплоадс надо возвращать статические картинки из папки аплоадс
+app.use('/uploads', express.static('uploads'));
+
 //по умолчанию express  не умеет читать жсон, так включается эта опция
 app.use(express.json());
 
@@ -34,129 +60,45 @@ app.get('/', (req, res) => {
   res.send('Hello, world');
 });
 
-app.post('/auth/login', async (req, res) => {
-  // console.log(req.body);
-  // //при создании токена в метод сайн передаем данные, которые хотим зашифровать
-  // const token = jwt.sign(
-  //   {
-  //     email: req.body.email,
-  //     password: req.body.password,
-  //   },
-  //   'secret123' // вторым параметром указываем ключ для шифрования, рандомное значение может быть
-  // );
-  // //возвращаем все, что хотим
-  // res.json({
-  //   success: true,
-  //   token,
-  // });
+app.post('/auth/login', loginValidation, UserController.login);
 
-  //при авторизации надо проверить, есть ли пользователь в базе данных
-  try {
-    const user = await UserModel.findOne({
-      email: req.body.email,
-    });
-    if (!user) {
-      return res.status(404).json({
-        message: 'Пользователь не обнаружен',
-      });
-    }
+app.post('/auth/register', registerValidation, UserController.register);
 
-    //проверяем сходится ли пароль
-    const isValidPass = await bcrypt.compare(
-      req.body.password,
-      user._doc.passwordHash
-    );
+app.get('/auth/me', checkAuth, UserController.getMe);
 
-    if (!isValidPass) {
-      return res.status(404).json({
-        message: 'Данные не совпадают',
-      });
-    }
-
-    //если все ок
-    const token = jwt.sign(
-      {
-        _id: user._id,
-      },
-      'secret123',
-      {
-        expiresIn: '30d',
-      }
-    );
-
-    const { passwordHash, ...userData } = user._doc;
-
-    res.json({ ...userData, token });
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({
-      message: 'Ошибка при авторизации',
-    });
-  }
+//посты
+app.post('/upload', checkAuth, upload.single('image'), (req, res) => {
+  res.json({
+    url: `/uploads/${req.file.originalname}`,
+  });
 });
 
-app.post('/auth/register', registerValidation, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json(errors.array());
-    }
-    // пароль шифруется на бэке, а не фронте
-    const password = req.body.password;
-    //соль - это алгоритм шифрования пароля
-    const salt = await bcrypt.genSalt(10);
-    const hash = await bcrypt.hash(password, salt);
-    //создаем документ пользователя с помощью mongoDB
-    const doc = new UserModel({
-      email: req.body.email,
-      fullName: req.body.fullName,
-      avatarURL: req.body.avatarURL,
-      passwordHash: hash,
-    });
+app.get('/tags', PostController.getLastTags);
 
-    const user = await doc.save();
+app.get('/posts', PostController.getAll);
+app.get('/posts/tags', PostController.getLastTags);
+app.get('/posts/:id', PostController.getOne);
+app.post(
+  '/posts',
+  checkAuth,
+  postCreateValidation,
+  handleValidationErrors,
+  PostController.create
+);
+app.delete('/posts/:id', checkAuth, PostController.remove);
+app.patch(
+  '/posts/:id',
+  checkAuth,
+  postCreateValidation,
+  handleValidationErrors,
+  PostController.update
+);
 
-    const token = jwt.sign(
-      {
-        _id: user._id, // _id - это ключ из монгодб
-      },
-      'secret123',
-      {
-        expiresIn: '30d', //сколько времени будет валиден токен
-      }
-    );
-
-    //в юзер есть много полей, которые не надо возвращать на клиент
-    // я не хочу возвращать passwordHash
-    const { passwordHash, ...userData } = user._doc;
-
-    //при создании роутов ответ сервера должно быть всегда один
-    res.json({ ...userData, token });
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({
-      message: 'Ошибка при регистрации',
-    });
-  }
-});
-
-app.get('/auth/me', checkAuth, async (req, res) => {
-  try {
-    const user = await User.findById(req.userId);
-    if (!user) {
-      return res.status(404).json({
-        message: 'Пользователь не найден',
-      });
-    }
-
-    const { passwordHash, ...userData } = user._doc;
-    res.json(userData);
-  } catch (error) {
-    console.log(error);
-    return res.status(404).json({
-      message: 'Информация не найдена',
-    });
-  }
+//загрузка файлов
+app.post('/upload', checkAuth, upload.single('image'), (req, res) => {
+  res.json({
+    url: `/uploads/${req.file.originalname}`,
+  });
 });
 
 //запуск вебсервера
