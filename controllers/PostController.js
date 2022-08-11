@@ -21,8 +21,27 @@ export const getLastTags = async (req, res) => {
 export const getAll = async (req, res) => {
   try {
     //чтобы получить информацию о пользователе, нам надо связать две таблицы БД
-    const posts = await PostModel.find().populate('user').exec();
-    res.json(posts);
+    const posts = await PostModel.find()
+      .sort({ createdAt: 'desc' })
+      .populate('user')
+      .exec();
+    res.json({ posts, sort: 'default' });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({
+      message: 'Не удалось получить статьи',
+    });
+  }
+};
+
+export const getPopularPosts = async (req, res) => {
+  try {
+    //чтобы получить информацию о пользователе, нам надо связать две таблицы БД
+    const posts = await PostModel.find()
+      .sort({ viewsCount: 'desc' })
+      .populate('user')
+      .exec();
+    res.json({ posts, sort: 'popular' });
   } catch (err) {
     console.log(err);
     res.status(500).json({
