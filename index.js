@@ -13,7 +13,11 @@ import {
 
 import { handleValidationErrors, checkAuth } from './utils/index.js';
 
-import { UserController, PostController } from './controllers/index.js';
+import {
+  UserController,
+  PostController,
+  ProjectController,
+} from './controllers/index.js';
 
 mongoose
   .connect(
@@ -104,6 +108,11 @@ app.patch(
   handleValidationErrors,
   PostController.update
 );
+
+//projects
+
+app.get('/projects', ProjectController.getAllProjects);
+app.get('/projects/:id', ProjectController.getOneProject);
 
 //загрузка файлов
 app.post('/upload', checkAuth, upload.single('image'), (req, res) => {
